@@ -19,7 +19,8 @@ enum Command
 {
     FRONT,
     LEFT,
-    RIGHT
+    RIGHT,
+    NONE_CMD
 };
 
 enum Situation_t
@@ -108,7 +109,8 @@ class ObstacleDetector
         obstacle_avoidance::Detection detected_areas_;
 
         //Última situação de obstáculo
-        Obstacle last_obstacle;
+        Obstacle last_obstacle_;
+        double delta_time_;
         
         Command last_command_;
         void front();

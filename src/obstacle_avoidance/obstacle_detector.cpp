@@ -16,9 +16,11 @@ ObstacleDetector::ObstacleDetector()
 
     nh_private_.param<int>("detection_area", min_area_, 1000);
     nh_private_.param<int>("detection_distance", min_dist_, 800);
+    nh_private_.param<double>("delta_time", delta_time_, 0.01);
 
     ROS_INFO("detection area: %d", min_area_);
     ROS_INFO("detection distance: %d", min_dist_);
+    ROS_INFO("delta time: %f", delta_time_);
 
     depth_sub_ = it_.subscribe("sensor/kinect/depth_generator/depth_map", 1, &ObstacleDetector::depthMapCallBack, this);
     detected_areas_pub_ = nh_.advertise<obstacle_avoidance::Detection>("obstacle_detector/detected_areas", 1);
@@ -38,6 +40,9 @@ ObstacleDetector::ObstacleDetector()
     detected_areas_.ultrassonic[1] = false;
     detected_areas_.ultrassonic[2] = false;
     detected_areas_.ultrassonic[3] = false;
+
+    last_obstacle_.type = NONE;
+    last_command_ = NONE_CMD;
 }
 
 ObstacleDetector::~ObstacleDetector(){}
@@ -70,23 +75,79 @@ void ObstacleDetector::depthMapCallBack(const sensor_msgs::ImageConstPtr& depth_
 
         //De acordo com o artigo do Ortiz Correa, temos 5 situações
         //de reconhecimento de obstáculos
+        
+        Obstacle current_obstacle;
 
         if( (!detected_areas_.kinect[0]) && (!detected_areas_.kinect[1]) && (!detected_areas_.kinect[2]) ){ //Nenhum obstáculo
             ObstacleDetector::front(); //va para a frente
         }
         else if( (!detected_areas_.kinect[0]) && (!detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){ // obstáculo à direita
-            ObstacleDetector::left(); // vire à esquerda
+
+            current_obstacle.type = RIGHT_ONE;
+            current_obstacle.time = ros::Time::now();
+
+            if( ( (last_obstacle_.type == LEFT_ONE) || (last_obstacle_.type == LEFT_TWO) ) && ( (last_obstacle_.time - ros::Time::now()) < ros::Duration(delta_time_) ) ){
+                ObstacleDetector::right();
+            }
+            else
+            {
+                ObstacleDetector::left(); // vire à esquerda
+            }
+
+            last_obstacle_ = current_obstacle;
+
         }
         else if( (!detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){ // dois obstáculos à direita
-            ObstacleDetector::left();
+
+            current_obstacle.type = RIGHT_TWO;
+            current_obstacle.time = ros::Time::now();
+
+            if( ( (last_obstacle_.type == LEFT_ONE) || (last_obstacle_.type == LEFT_TWO) ) && ( (last_obstacle_.time - ros::Time::now()) < ros::Duration(delta_time_) ) ){
+                ObstacleDetector::right();
+            }
+            else
+            {
+                ObstacleDetector::left(); // vire à esquerda
+            }
+
+            last_obstacle_ = current_obstacle;
         }
         else if( (detected_areas_.kinect[0]) && (!detected_areas_.kinect[1]) && (!detected_areas_.kinect[2]) ){ // um obstáculo à esquerda
-            ObstacleDetector::right();
+
+            current_obstacle.type = LEFT_ONE;
+            current_obstacle.time = ros::Time::now();
+
+            if( ( (last_obstacle_.type == RIGHT_ONE) || (last_obstacle_.type == RIGHT_TWO) ) && ( (last_obstacle_.time - ros::Time::now()) < ros::Duration(delta_time_) ) ){
+                ObstacleDetector::left();
+            }
+            else
+            {
+                ObstacleDetector::right(); // vire à esquerda
+            }
+
+            last_obstacle_ = current_obstacle;
+
         }
         else if( (detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (!detected_areas_.kinect[2]) ){ // dois obstáculos à esquerda
-            ObstacleDetector::right();
+
+            current_obstacle.type = LEFT_TWO;
+            current_obstacle.time = ros::Time::now();
+
+            if( ( (last_obstacle_.type == RIGHT_ONE) || (last_obstacle_.type == RIGHT_TWO) ) && ( (last_obstacle_.time - ros::Time::now()) < ros::Duration(delta_time_) ) ){
+                ObstacleDetector::left();
+            }
+            else
+            {
+                ObstacleDetector::right(); // vire à esquerda
+            }
+
+            last_obstacle_ = current_obstacle;
+
         }
-        else if( (!detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (!detected_areas_.kinect[2]) ){
+        else if( (!detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (!detected_areas_.kinect[2]) ){ // obstaculo no centro
+
+            current_obstacle.type = MIDDLE;
+            current_obstacle.time = ros::Time::now();
 
             if(last_command_ == RIGHT){
                 ObstacleDetector::right();
@@ -99,10 +160,36 @@ void ObstacleDetector::depthMapCallBack(const sensor_msgs::ImageConstPtr& depth_
                 if(rand()%2) ObstacleDetector::right();
                 else ObstacleDetector::left();
             }
-        }
-        else if( (detected_areas_.kinect[0]) && (!detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){
 
-//            ObstacleDetector::front();
+            last_obstacle_ = current_obstacle;
+        }
+        else if( (detected_areas_.kinect[0]) && (!detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){ //obstaculo nas extremidades
+
+            current_obstacle.type = LEFT_RIGHT;
+            current_obstacle.time = ros::Time::now();
+
+            if(last_command_ == RIGHT){
+                ObstacleDetector::right();
+            }
+            else if(last_command_ == LEFT){
+                ObstacleDetector::left();
+            }
+            else
+            { 
+                if(rand()%2) {
+                    ObstacleDetector::right();
+                }
+                else {
+                    ObstacleDetector::left();
+                }
+            }         
+
+            last_obstacle_ = current_obstacle;
+        }
+        else if( (detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){ //obstaculos todos
+
+            current_obstacle.type = ALL;
+            current_obstacle.time = ros::Time::now();
 
             if(last_command_ == RIGHT){
                 ObstacleDetector::right();
@@ -115,20 +202,8 @@ void ObstacleDetector::depthMapCallBack(const sensor_msgs::ImageConstPtr& depth_
                 if(rand()%2) ObstacleDetector::right();
                 else ObstacleDetector::left();
             }         
-        }
-        else if( (detected_areas_.kinect[0]) && (detected_areas_.kinect[1]) && (detected_areas_.kinect[2]) ){
 
-            if(last_command_ == RIGHT){
-                ObstacleDetector::right();
-            }
-            else if(last_command_ == LEFT){
-                ObstacleDetector::left();
-            }
-            else if(last_command_ == FRONT){
-
-                if(rand()%2) ObstacleDetector::right();
-                else ObstacleDetector::left();
-            }         
+            last_obstacle_ = current_obstacle;
         }
 
         cv::Mat show; depth_cv_ptr->image.convertTo(show,CV_8UC1, 0.05f);
