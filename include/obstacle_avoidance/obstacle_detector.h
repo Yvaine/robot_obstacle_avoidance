@@ -78,6 +78,7 @@ class ObstacleDetector
 
         //this shall subscribe to a depth map.
         image_transport::Subscriber depth_sub_; 
+	image_transport::Publisher binary_pub_;
 
         ros::Subscriber ultrassonic_nt_sub_;
         ros::Subscriber ultrassonic_st_sub_;

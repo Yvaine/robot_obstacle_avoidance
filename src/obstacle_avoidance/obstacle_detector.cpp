@@ -22,7 +22,8 @@ ObstacleDetector::ObstacleDetector()
     ROS_INFO("detection distance: %d", min_dist_);
     ROS_INFO("delta time: %f", delta_time_);
 
-    depth_sub_ = it_.subscribe("sensor/kinect/depth_generator/depth_map", 1, &ObstacleDetector::depthMapCallBack, this);
+    depth_sub_ = it_.subscribe("/camera/depth/image_raw", 1, &ObstacleDetector::depthMapCallBack, this);
+    binary_pub_ = it_.advertise("/kinect/detected_areas", 1);
     detected_areas_pub_ = nh_.advertise<obstacle_avoidance::Detection>("obstacle_detector/detected_areas", 1);
 
     cmd_vel_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
@@ -50,11 +51,15 @@ ObstacleDetector::~ObstacleDetector(){}
 void ObstacleDetector::depthMapCallBack(const sensor_msgs::ImageConstPtr& depth_map)
 {
     cv_bridge::CvImagePtr depth_cv_ptr;
+    cv_bridge::CvImage binary_cv;
     try
     {
         depth_cv_ptr = cv_bridge::toCvCopy(depth_map, sensor_msgs::image_encodings::TYPE_16UC1); //grabs the depth_map        
 
         cv::inRange(depth_cv_ptr->image, cv::Scalar(300), cv::Scalar(min_dist_), binary_); //thresholds the depth map to find obstacles
+
+	binary_cv.image = binary_;
+	binary_cv.encoding = sensor_msgs::image_encodings::TYPE_8UC1;
 
         //Now we calculate the moments to find out the area of the non-zero values in the map, that is
         //the regions below the defined distance threshold.
@@ -206,9 +211,7 @@ void ObstacleDetector::depthMapCallBack(const sensor_msgs::ImageConstPtr& depth_
             last_obstacle_ = current_obstacle;
         }
 
-        cv::Mat show; depth_cv_ptr->image.convertTo(show,CV_8UC1, 0.05f);
-        cv::imshow("teste", binary_);
-        cv::imshow("binary", show);
+	binary_pub_.publish(binary_cv.toImageMsg());
         cv::waitKey(1);
     }
 
